@@ -80,7 +80,7 @@ def run_benchmark() -> dict:
 
     try:
         result["timings"] = _measure_timings(client)
-        result["verdict"] = _make_verdict(result["timings"])
+        result["verdict"] = _make_verdict(result["timings"], result["system"]["gpu"])
     except Exception as e:
         result["error"] = str(e)
 
@@ -160,49 +160,63 @@ def _measure_timings(client: ollama.Client) -> dict:
     wall_ms = int((time.perf_counter() - t0) * 1000)
 
     # Extract Ollama's internal timing metadata (nanoseconds)
-    prompt_eval_ms = int(resp.get("prompt_eval_duration", 0) / 1e6)
-    eval_ms = int(resp.get("eval_duration", 0) / 1e6)
-    eval_count = resp.get("eval_count", 0)
-    tokens_per_sec = round(eval_count / (eval_ms / 1000), 1) if eval_ms > 0 else 0
+    load_ms         = int(resp.get("load_duration",        0) / 1e6)
+    prompt_eval_ms  = int(resp.get("prompt_eval_duration", 0) / 1e6)
+    eval_ms         = int(resp.get("eval_duration",        0) / 1e6)
+    eval_count      = resp.get("eval_count", 0)
+    tokens_per_sec  = round(eval_count / (eval_ms / 1000), 1) if eval_ms > 0 else 0
 
     return {
         "embed_ms": embed_ms,
         "search_ms": search_ms,
-        "prompt_eval_ms": prompt_eval_ms,   # time to process context (≈ TTFT)
+        "load_ms": load_ms,                 # cold-start model load (0 if already warm)
+        "prompt_eval_ms": prompt_eval_ms,
         "generation_ms": eval_ms,
         "tokens_generated": eval_count,
         "tokens_per_sec": tokens_per_sec,
-        "total_ms": embed_ms + search_ms + wall_ms,
+        "total_ms": embed_ms + search_ms + load_ms + prompt_eval_ms + eval_ms,
         "answer_preview": resp["message"]["content"][:120],
     }
 
 
-def _make_verdict(timings: dict) -> dict:
-    tps = timings["tokens_per_sec"]
+def _make_verdict(timings: dict, gpu_info: str = "unknown") -> dict:
+    tps  = timings["tokens_per_sec"]
     ttft = timings["prompt_eval_ms"]
 
-    if tps >= 20:
-        rating, colour = "excellent", "#16a34a"
-        message = "GPU acceleration is working well."
-        recommendation = "You're in good shape. Consider gemma4:e4b for better answer quality."
-    elif tps >= 8:
-        rating, colour = "good", "#65a30d"
-        message = "Decent GPU acceleration detected."
-        recommendation = "Performance is usable. An RTX 3060 12GB or better would give a further boost."
-    elif tps >= 2:
-        rating, colour = "moderate", "#d97706"
-        message = "Partial GPU offload or Apple Silicon (non-MLX) detected."
+    gpu_active = gpu_info not in ("CPU only", "unknown", "")
+
+    if not gpu_active:
+        # CPU-only — bucket by speed so the recommendation stays useful
+        if tps >= 10:
+            rating, colour = "moderate", "#d97706"
+            message = "CPU-only inference. Decent speed for CPU, but a GPU would be ~20–40× faster."
+        elif tps >= 3:
+            rating, colour = "poor", "#dc2626"
+            message = "CPU-only inference detected."
+        else:
+            rating, colour = "poor", "#dc2626"
+            message = "CPU-only inference (very slow)."
         recommendation = (
-            "On Apple Silicon: install Ollama natively and use gemma4:e2b-mlx for ~2× speedup. "
-            "On Windows: your GPU VRAM may be too small — the model is spilling to CPU."
+            "Add a GPU with ≥12GB VRAM (e.g. RTX 4070 Super) for sub-10s responses. "
+            "On Apple Silicon: install Ollama natively and use gemma4:e2b-mlx."
         )
     else:
-        rating, colour = "poor", "#dc2626"
-        message = "CPU-only inference detected."
-        recommendation = (
-            "Add a GPU with ≥12GB VRAM (e.g. RTX 4070 Super) for ~30–50× faster responses. "
-            "On Apple Silicon: install Ollama natively instead of running it in Docker."
-        )
+        # GPU in use — bucket by tokens/sec
+        if tps >= 20:
+            rating, colour = "excellent", "#16a34a"
+            message = "GPU acceleration working well."
+            recommendation = "Consider gemma4:e4b for better answer quality at similar speed."
+        elif tps >= 8:
+            rating, colour = "good", "#65a30d"
+            message = f"GPU acceleration active ({gpu_info})."
+            recommendation = "A larger GPU would allow running bigger models (26B+)."
+        else:
+            rating, colour = "moderate", "#d97706"
+            message = f"Partial GPU offload ({gpu_info}) — model is spilling to CPU."
+            recommendation = (
+                "GPU VRAM is too small to hold the full model. "
+                "A card with ≥12GB VRAM would eliminate the CPU spill."
+            )
 
     return {
         "rating": rating,

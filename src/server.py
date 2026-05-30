@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 sys.path.insert(0, os.path.dirname(__file__))
 import benchmark as bm
 import rag
+import search as search_module
 from config import PERSONAS
 
 app = FastAPI(title="Green AI")
@@ -138,6 +139,37 @@ HTML_FORM = """<!DOCTYPE html>
       background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;
       padding: 1rem 1.25rem; color: #991b1b; font-size: 0.9rem;
     }
+
+    /* Search result cards */
+    .search-results { display: flex; flex-direction: column; gap: 0.75rem; }
+    .search-card {
+      border: 1px solid #e5e7eb; border-radius: 10px;
+      padding: 1rem 1.25rem; background: #fafafa;
+    }
+    .search-card-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 0.6rem;
+    }
+    .search-card-source {
+      font-size: 0.78rem; font-weight: 700; color: #6b7280;
+      background: #e5e7eb; padding: 2px 8px; border-radius: 4px;
+    }
+    .search-card-score {
+      font-size: 0.85rem; font-weight: 700; color: #16a34a;
+    }
+    .search-score-bars { display: flex; flex-direction: column; gap: 4px; margin-bottom: 0.6rem; }
+    .score-bar-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: #9ca3af; }
+    .score-bar-track {
+      flex: 1; height: 4px; background: #e5e7eb; border-radius: 2px; overflow: hidden;
+    }
+    .score-bar-fill { height: 100%; border-radius: 2px; }
+    .bar-semantic { background: #16a34a; }
+    .bar-keyword  { background: #2563eb; }
+    .search-card-snippet {
+      font-size: 0.88rem; color: #374151; line-height: 1.6;
+      display: -webkit-box; -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
   </style>
 </head>
 <body>
@@ -149,8 +181,11 @@ HTML_FORM = """<!DOCTYPE html>
     </p>
 
     <div class="mode-row" id="mode-row">
-      <div class="mode-btn active" data-persona="" onclick="selectMode(this)">
-        🔍 Factual Assistant
+      <div class="mode-btn active" data-persona="" data-mode="ask" onclick="selectMode(this)">
+        💬 Factual Assistant
+      </div>
+      <div class="mode-btn" data-persona="" data-mode="search" onclick="selectMode(this)">
+        🔍 Search
       </div>
     </div>
 
@@ -180,6 +215,7 @@ HTML_FORM = """<!DOCTYPE html>
 
   <script>
     let activePersonaId = '';
+    let activeMode = 'ask';   // 'ask' | 'search' | 'persona'
     let personas = [];
 
     async function loadPersonas() {
@@ -191,54 +227,59 @@ HTML_FORM = """<!DOCTYPE html>
           const btn = document.createElement('div');
           btn.className = 'mode-btn';
           btn.dataset.persona = p.id;
+          btn.dataset.mode = 'persona';
           btn.dataset.name = p.name;
           btn.dataset.desc = p.description;
           btn.innerHTML = '🎭 ' + p.name;
           btn.onclick = () => selectMode(btn);
           row.appendChild(btn);
         });
-      } catch(e) { /* personas unavailable — factual mode only */ }
+      } catch(e) { /* personas unavailable */ }
     }
 
     function selectMode(btn) {
       document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+      activeMode      = btn.dataset.mode || 'ask';
       activePersonaId = btn.dataset.persona || '';
 
-      const banner  = document.getElementById('persona-banner');
-      const avatar  = document.getElementById('persona-avatar');
-      const nameEl  = document.getElementById('persona-name');
-      const descEl  = document.getElementById('persona-desc');
-      const label   = document.getElementById('question-label');
-      const ta      = document.getElementById('question');
+      const banner    = document.getElementById('persona-banner');
+      const label     = document.getElementById('question-label');
+      const ta        = document.getElementById('question');
       const submitBtn = document.getElementById('submit-btn');
 
-      if (activePersonaId) {
+      // Reset
+      banner.classList.remove('active');
+      submitBtn.className = '';
+
+      if (activeMode === 'persona') {
         banner.classList.add('active');
-        avatar.textContent = btn.dataset.name[0];
-        nameEl.textContent = btn.dataset.name;
-        descEl.textContent = btn.dataset.desc;
-        label.textContent  = 'Say something to ' + btn.dataset.name;
-        ta.placeholder     = 'e.g. Tell me about your morning routine...';
+        document.getElementById('persona-avatar').textContent = btn.dataset.name[0];
+        document.getElementById('persona-name').textContent   = btn.dataset.name;
+        document.getElementById('persona-desc').textContent   = btn.dataset.desc;
+        label.textContent     = 'Say something to ' + btn.dataset.name;
+        ta.placeholder        = 'e.g. Tell me about your morning routine...';
         submitBtn.textContent = 'Send';
-        submitBtn.className = 'persona-mode';
+        submitBtn.className   = 'persona-mode';
+      } else if (activeMode === 'search') {
+        label.textContent     = 'Search your documents';
+        ta.placeholder        = 'e.g. morning routine business card';
+        submitBtn.textContent = 'Search';
       } else {
-        banner.classList.remove('active');
-        label.textContent  = 'Your question';
-        ta.placeholder     = 'e.g. What happens at the beginning of the story?';
+        label.textContent     = 'Your question';
+        ta.placeholder        = 'e.g. What happens at the beginning of the story?';
         submitBtn.textContent = 'Ask';
-        submitBtn.className = '';
       }
       document.getElementById('result').classList.remove('active');
     }
 
     async function submitQuery() {
-      const question = document.getElementById('question').value.trim();
-      if (!question) return;
+      const input = document.getElementById('question').value.trim();
+      if (!input) return;
 
-      const btn     = document.getElementById('submit-btn');
-      const spinner = document.getElementById('spinner');
-      const result  = document.getElementById('result');
+      const btn       = document.getElementById('submit-btn');
+      const spinner   = document.getElementById('spinner');
+      const result    = document.getElementById('result');
       const answerEl  = document.getElementById('answer-text');
       const sourcesEl = document.getElementById('sources');
       const tag       = document.getElementById('persona-tag');
@@ -246,48 +287,107 @@ HTML_FORM = """<!DOCTYPE html>
       btn.disabled = true;
       spinner.classList.add('active');
       result.classList.remove('active');
-      answerEl.className = 'answer';
 
       try {
-        const body = { question };
-        if (activePersonaId) body.persona = activePersonaId;
-
-        const resp = await fetch('/query', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const data = await resp.json();
-
-        if (!resp.ok) {
-          answerEl.className = 'error';
-          answerEl.textContent = data.detail || 'An error occurred.';
-          sourcesEl.innerHTML = '';
-          tag.style.display = 'none';
+        if (activeMode === 'search') {
+          await runSearch(input, answerEl, sourcesEl, tag);
         } else {
-          answerEl.textContent = data.answer;
-          if (data.persona) {
-            const p = personas.find(x => x.id === data.persona);
-            answerEl.className = 'answer persona-answer';
-            tag.textContent    = p ? p.name : data.persona;
-            tag.style.display  = '';
-          } else {
-            answerEl.className = 'answer';
-            tag.style.display  = 'none';
-          }
-          sourcesEl.innerHTML = data.sources.length
-            ? 'Sources: ' + data.sources.map(s => `<span>${s}</span>`).join('')
-            : '';
+          await runQuery(input, answerEl, sourcesEl, tag);
         }
         result.classList.add('active');
       } catch(e) {
-        answerEl.className = 'error';
+        answerEl.className   = 'error';
         answerEl.textContent = 'Failed to reach the server.';
         result.classList.add('active');
       } finally {
         btn.disabled = false;
         spinner.classList.remove('active');
       }
+    }
+
+    async function runQuery(question, answerEl, sourcesEl, tag) {
+      answerEl.className = 'answer';
+      const body = { question };
+      if (activePersonaId) body.persona = activePersonaId;
+
+      const resp = await fetch('/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        answerEl.className   = 'error';
+        answerEl.textContent = data.detail || 'An error occurred.';
+        sourcesEl.innerHTML  = '';
+        tag.style.display    = 'none';
+      } else {
+        answerEl.textContent = data.answer;
+        if (data.persona) {
+          const p = personas.find(x => x.id === data.persona);
+          answerEl.className = 'answer persona-answer';
+          tag.textContent    = p ? p.name : data.persona;
+          tag.style.display  = '';
+        } else {
+          answerEl.className = 'answer';
+          tag.style.display  = 'none';
+        }
+        sourcesEl.innerHTML = data.sources.length
+          ? 'Sources: ' + data.sources.map(s => `<span>${s}</span>`).join('')
+          : '';
+      }
+    }
+
+    async function runSearch(query, answerEl, sourcesEl, tag) {
+      tag.style.display   = 'none';
+      sourcesEl.innerHTML = '';
+
+      const resp = await fetch('/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || !data.results) {
+        answerEl.className   = 'error';
+        answerEl.textContent = data.detail || 'Search failed.';
+        return;
+      }
+
+      if (data.results.length === 0) {
+        answerEl.className   = 'answer';
+        answerEl.textContent = 'No matching passages found.';
+        return;
+      }
+
+      const bar = (score, cls) =>
+        `<div class="score-bar-track"><div class="score-bar-fill ${cls}" style="width:${Math.round(score*100)}%"></div></div>`;
+
+      answerEl.className = '';
+      answerEl.innerHTML = `<div class="search-results">${
+        data.results.map((r, i) => `
+          <div class="search-card">
+            <div class="search-card-header">
+              <span class="search-card-source">${r.source}</span>
+              <span class="search-card-score">${Math.round(r.score * 100)}% match</span>
+            </div>
+            <div class="search-score-bars">
+              <div class="score-bar-row">
+                <span style="width:4.5rem">Semantic</span>
+                ${bar(r.semantic_score, 'bar-semantic')}
+                <span style="width:2.5rem;text-align:right">${Math.round(r.semantic_score*100)}%</span>
+              </div>
+              <div class="score-bar-row">
+                <span style="width:4.5rem">Keyword</span>
+                ${bar(r.keyword_score, 'bar-keyword')}
+                <span style="width:2.5rem;text-align:right">${Math.round(r.keyword_score*100)}%</span>
+              </div>
+            </div>
+            <div class="search-card-snippet">${r.content}</div>
+          </div>`).join('')
+      }</div>`;
     }
 
     document.getElementById('question').addEventListener('keydown', e => {
@@ -425,11 +525,24 @@ BENCHMARK_PAGE = """<!DOCTYPE html>
           return `<div class="timing-bar" style="width:${pct}%"></div>`;
         };
 
+        const loadRow = t.load_ms > 500
+          ? `<div class="row">
+               <span class="label" style="color:#d97706">
+                 ⚠ Model cold start
+                 <span style="font-size:0.75rem;font-weight:400;display:block;margin-top:1px">
+                   Model was evicted from memory. Run again for a warm reading.
+                 </span>
+               </span>
+               <span class="value" style="color:#d97706">${fmt(t.load_ms)}</span>
+             </div>${bar(t.load_ms)}`
+          : '';
+
         document.getElementById('timing-rows').innerHTML = `
           <div class="row"><span class="label">Embed query</span><span class="value">${fmt(t.embed_ms)}</span></div>
           ${bar(t.embed_ms)}
           <div class="row"><span class="label">Vector search</span><span class="value">${fmt(t.search_ms)}</span></div>
           ${bar(t.search_ms)}
+          ${loadRow}
           <div class="row"><span class="label">Prompt processing</span><span class="value">${fmt(t.prompt_eval_ms)}</span></div>
           ${bar(t.prompt_eval_ms)}
           <div class="row"><span class="label">Generation (${t.tokens_generated} tokens)</span><span class="value">${fmt(t.generation_ms)} · ${t.tokens_per_sec} tok/s</span></div>
@@ -454,9 +567,11 @@ BENCHMARK_PAGE = """<!DOCTYPE html>
           <div class="verdict-rec">💡 ${v.recommendation}</div>
         `;
 
+        // Remove stale GPU row from a previous run before adding the fresh one
+        document.getElementById('gpu-usage-row')?.remove();
         if (d.system?.gpu && d.system.gpu !== 'unknown') {
           document.getElementById('status-rows').innerHTML +=
-            `<div class="row"><span class="label">GPU usage</span><span class="value">${d.system.gpu}</span></div>`;
+            `<div class="row" id="gpu-usage-row"><span class="label">GPU usage</span><span class="value">${d.system.gpu}</span></div>`;
         }
 
         results.classList.add('active');
@@ -501,6 +616,19 @@ async def query_endpoint(request: Request):
     try:
         result = await run_in_threadpool(rag.query, question, persona_id)
         return JSONResponse(result)
+    except Exception as e:
+        return JSONResponse({"detail": str(e)}, status_code=500)
+
+
+@app.post("/search")
+async def search_endpoint(request: Request):
+    body = await request.json()
+    query = (body.get("query") or "").strip()
+    if not query:
+        return JSONResponse({"detail": "Query must not be empty."}, status_code=400)
+    try:
+        results = await run_in_threadpool(search_module.search, query)
+        return JSONResponse({"results": results})
     except Exception as e:
         return JSONResponse({"detail": str(e)}, status_code=500)
 
