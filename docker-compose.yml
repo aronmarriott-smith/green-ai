@@ -1,0 +1,49 @@
+services:
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    environment:
+      - OLLAMA_KEEP_ALIVE=-1    # keep models loaded in memory permanently (no cold-start penalty)
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+    # ── GPU support (NVIDIA) ─────────────────────────────────────────────────
+    # Requires nvidia-container-toolkit installed on the host machine.
+    # See: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+    #
+    # Remove or comment-out the `deploy` block below for CPU-only machines.
+    # Inference will work without a GPU but will be significantly slower.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # ────────────────────────────────────────────────────────────────────────
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data      # add new HTML/PDF files here to ingest
+      - ./db:/app/db          # persists the vector database between restarts
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ollama_models:    # stores downloaded Ollama models — persists between restarts
