@@ -74,9 +74,32 @@ pull_if_missing "$EMBED_MODEL"
 pull_if_missing "$CHAT_MODEL"
 
 # ── Set up Python environment ─────────────────────────────────────────────────
+# Prefer Homebrew Python — the macOS system Python lacks SQLite extension support
+# which is required by sqlite-vec.
+PYTHON3="python3"
+for candidate in /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11 /opt/homebrew/bin/python3; do
+  if [[ -x "$candidate" ]]; then
+    PYTHON3="$candidate"
+    break
+  fi
+done
+
+# On macOS 26 beta the system libexpat is missing a symbol that all Homebrew Python
+# versions require. Override it with Homebrew's own expat when available.
+HOMEBREW_EXPAT="/opt/homebrew/opt/expat/lib"
+if [[ -d "$HOMEBREW_EXPAT" ]]; then
+  export DYLD_LIBRARY_PATH="${HOMEBREW_EXPAT}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+fi
+
+# Recreate venv if it was built with a Python that lacks SQLite extension support.
+if [[ -d venv ]] && ! venv/bin/python3 -c "import sqlite3; sqlite3.connect(':memory:').enable_load_extension(True)" 2>/dev/null; then
+  echo "  Recreating venv with a Python that supports SQLite extensions..."
+  rm -rf venv
+fi
+
 if [[ ! -d venv ]]; then
   echo "  Creating Python virtual environment..."
-  python3 -m venv venv
+  "$PYTHON3" -m venv venv
 fi
 
 if ! venv/bin/pip show fastapi &>/dev/null; then
