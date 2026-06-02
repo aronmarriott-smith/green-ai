@@ -22,7 +22,16 @@ OS=$(uname -s)
 # ── Detect hardware and set model variant ─────────────────────────────────────
 if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
   PLATFORM="Apple Silicon"
-  export CHAT_MODEL="${CHAT_MODEL:-gemma4:e2b-mlx}"
+  # On 8 GB unified memory, the MLX model can't fit alongside the OS.
+  # Fall back to the standard GGUF model and run Ollama CPU-only.
+  TOTAL_RAM_GB=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+  if [[ "$TOTAL_RAM_GB" -le 8 ]]; then
+    export CHAT_MODEL="${CHAT_MODEL:-gemma4:e2b}"
+    export OLLAMA_NUM_GPU=0
+    PLATFORM="Apple Silicon (CPU mode — 8 GB RAM)"
+  else
+    export CHAT_MODEL="${CHAT_MODEL:-gemma4:e2b-mlx}"
+  fi
   export EMBED_MODEL="${EMBED_MODEL:-embeddinggemma:300m}"
 else
   PLATFORM="$OS ($ARCH)"
@@ -48,7 +57,7 @@ fi
 # ── Start Ollama if not already running ───────────────────────────────────────
 if ! curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
   echo "  Starting Ollama..."
-  OLLAMA_KEEP_ALIVE=-1 ollama serve > /tmp/ollama.log 2>&1 &
+  OLLAMA_KEEP_ALIVE=-1 OLLAMA_NUM_GPU=${OLLAMA_NUM_GPU:-99} ollama serve > /tmp/ollama.log 2>&1 &
   echo "  Waiting for Ollama to be ready..."
   until curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; do sleep 2; done
 else

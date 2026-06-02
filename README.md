@@ -105,7 +105,8 @@ For NVIDIA on Windows, Docker + nvidia-container-toolkit (Option A) is the clean
 | Machine | Recommended path | Expected query time |
 |---------|-----------------|-------------------|
 | Intel MacBook Pro | Docker / Native — CPU only | ~90s |
-| Mac Mini M1 | Native (`run-native.sh`) | ~15–25s |
+| Mac Mini M1 8 GB | Native (`run-native.sh`) — close Chrome first | 22s warm · 26 tok/s (GPU), 23s warm · 26 tok/s (CPU fallback) |
+| Mac Mini M1 16 GB+ | Native (`run-native.sh`) — Metal/MLX | ~15–25s |
 | Windows + GTX 1060 6GB | Docker (partial GPU offload) | ~40–60s |
 | Windows + RTX 4070 Super 12GB | Docker (full VRAM) | ~5–10s |
 
