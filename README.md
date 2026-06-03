@@ -52,7 +52,12 @@ docker compose exec app python3 src/ingest.py --reset
 
 ### Option B — Native (recommended for Apple Silicon)
 
-Use this path on the M1/M2/M3 Mac Mini to get Metal/MLX acceleration. Docker on macOS cannot pass the GPU through to containers, so native Ollama is required for hardware acceleration.
+Use this path on Apple Silicon (M1/M2/M3/M4) to get Metal/MLX acceleration. Docker on macOS cannot pass the GPU through to containers, so native Ollama is required for hardware acceleration.
+
+**Prerequisites:** [Ollama](https://ollama.com), [Homebrew](https://brew.sh), and Homebrew Python:
+```bash
+brew install python@3.12 expat
+```
 
 ```bash
 chmod +x run-native.sh
@@ -61,6 +66,8 @@ chmod +x run-native.sh
 
 The script automatically:
 - Detects Apple Silicon and selects `gemma4:e2b-mlx`
+- Prefers Homebrew Python over the macOS system Python (required for SQLite vector extensions)
+- Works around a Homebrew Python / libexpat incompatibility on macOS 26 beta
 - Starts Ollama natively with `KEEP_ALIVE=-1` (model stays warm)
 - Pulls models on first run
 - Runs ingestion if the database is empty
@@ -77,10 +84,10 @@ export OLLAMA_KEEP_ALIVE=-1
 
 ### Option C — Native (Windows with NVIDIA GPU, without Docker)
 
-```bash
+`run-native.sh` requires bash and will not run in PowerShell or CMD. Use Git Bash / WSL, or run the steps manually in PowerShell:
+
+```powershell
 # Install Ollama from https://ollama.com, then:
-./run-native.sh          # Git Bash / WSL
-# or on PowerShell:
 python -m venv venv
 venv\Scripts\pip install -r requirements.txt
 ollama pull embeddinggemma:300m
@@ -97,8 +104,9 @@ For NVIDIA on Windows, Docker + nvidia-container-toolkit (Option A) is the clean
 
 | Machine | Recommended path | Expected query time |
 |---------|-----------------|-------------------|
-| Intel MBP (this dev machine) | Docker / Native — CPU only | ~90s |
-| Mac Mini M1 | Native (`run-native.sh`) | ~15–25s |
+| Intel MacBook Pro | Docker / Native — CPU only | ~90s |
+| Mac Mini M1 8 GB | Native (`run-native.sh`) — close Chrome first | 22s warm · 26 tok/s (GPU), 23s warm · 26 tok/s (CPU fallback) |
+| Mac Mini M1 16 GB+ | Native (`run-native.sh`) — Metal/MLX | ~15–25s |
 | Windows + GTX 1060 6GB | Docker (partial GPU offload) | ~40–60s |
 | Windows + RTX 4070 Super 12GB | Docker (full VRAM) | ~5–10s |
 

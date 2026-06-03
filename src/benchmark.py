@@ -101,10 +101,18 @@ def _system_info() -> dict:
         ps = client._request("GET", "/api/ps").json()
         models_running = ps.get("models", [])
         if models_running:
-            gpu_layers = models_running[0].get("size_vram", 0)
-            total_size = models_running[0].get("size", 1)
-            pct = int(100 * gpu_layers / total_size) if total_size else 0
-            info["gpu"] = f"{pct}% of model on GPU" if pct > 0 else "CPU only"
+            if platform.system() == "Darwin" and platform.machine() == "arm64":
+                # Apple Silicon has unified memory — size_vram always equals size
+                # regardless of whether Metal is active. Check the env var instead.
+                if os.environ.get("OLLAMA_NUM_GPU") == "0":
+                    info["gpu"] = "CPU only"
+                else:
+                    info["gpu"] = "Apple Silicon (Metal/MLX)"
+            else:
+                gpu_layers = models_running[0].get("size_vram", 0)
+                total_size = models_running[0].get("size", 1)
+                pct = int(100 * gpu_layers / total_size) if total_size else 0
+                info["gpu"] = f"{pct}% of model on GPU" if pct > 0 else "CPU only"
     except Exception:
         pass
     return info
@@ -196,15 +204,15 @@ def _make_verdict(timings: dict, gpu_info: str = "unknown") -> dict:
         else:
             rating, colour = "poor", "#dc2626"
             message = "CPU-only inference (very slow)."
-        recommendation = (
-            "Add a GPU with ≥12GB VRAM (e.g. RTX 4070 Super) for sub-10s responses. "
-            "On Apple Silicon: install Ollama natively and use gemma4:e2b-mlx."
-        )
+        if platform.system() == "Darwin" and platform.machine() == "arm64":
+            recommendation = "Running CPU-only due to low available memory. Close other apps to free RAM for Metal/MLX acceleration, or upgrade to a 16 GB model."
+        else:
+            recommendation = "Add a GPU with ≥12GB VRAM (e.g. RTX 4070 Super) for sub-10s responses. On Apple Silicon: install Ollama natively and use gemma4:e2b-mlx."
     else:
         # GPU in use — bucket by tokens/sec
         if tps >= 20:
             rating, colour = "excellent", "#16a34a"
-            message = "GPU acceleration working well."
+            message = "Metal/MLX acceleration working well." if gpu_info == "Apple Silicon (Metal/MLX)" else "GPU acceleration working well."
             recommendation = "Consider gemma4:e4b for better answer quality at similar speed."
         elif tps >= 8:
             rating, colour = "good", "#65a30d"
