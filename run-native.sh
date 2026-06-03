@@ -22,7 +22,16 @@ OS=$(uname -s)
 # ── Detect hardware and set model variant ─────────────────────────────────────
 if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
   PLATFORM="Apple Silicon"
-  export CHAT_MODEL="${CHAT_MODEL:-gemma4:e2b-mlx}"
+  # On 8 GB unified memory, the MLX model can't fit alongside the OS.
+  # Fall back to the standard GGUF model and run Ollama CPU-only.
+  TOTAL_RAM_GB=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+  if [[ "$TOTAL_RAM_GB" -le 8 ]]; then
+    export CHAT_MODEL="${CHAT_MODEL:-gemma4:e2b}"
+    export OLLAMA_NUM_GPU=0
+    PLATFORM="Apple Silicon (CPU mode — 8 GB RAM)"
+  else
+    export CHAT_MODEL="${CHAT_MODEL:-gemma4:e2b-mlx}"
+  fi
   export EMBED_MODEL="${EMBED_MODEL:-embeddinggemma:300m}"
 else
   PLATFORM="$OS ($ARCH)"
@@ -48,7 +57,7 @@ fi
 # ── Start Ollama if not already running ───────────────────────────────────────
 if ! curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
   echo "  Starting Ollama..."
-  OLLAMA_KEEP_ALIVE=-1 ollama serve > /tmp/ollama.log 2>&1 &
+  OLLAMA_KEEP_ALIVE=-1 OLLAMA_NUM_GPU=${OLLAMA_NUM_GPU:-99} ollama serve > /tmp/ollama.log 2>&1 &
   echo "  Waiting for Ollama to be ready..."
   until curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; do sleep 2; done
 else
@@ -74,9 +83,32 @@ pull_if_missing "$EMBED_MODEL"
 pull_if_missing "$CHAT_MODEL"
 
 # ── Set up Python environment ─────────────────────────────────────────────────
+# Prefer Homebrew Python — the macOS system Python lacks SQLite extension support
+# which is required by sqlite-vec.
+PYTHON3="python3"
+for candidate in /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11 /opt/homebrew/bin/python3; do
+  if [[ -x "$candidate" ]]; then
+    PYTHON3="$candidate"
+    break
+  fi
+done
+
+# On macOS 26 beta the system libexpat is missing a symbol that all Homebrew Python
+# versions require. Override it with Homebrew's own expat when available.
+HOMEBREW_EXPAT="/opt/homebrew/opt/expat/lib"
+if [[ -d "$HOMEBREW_EXPAT" ]]; then
+  export DYLD_LIBRARY_PATH="${HOMEBREW_EXPAT}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+fi
+
+# Recreate venv if it was built with a Python that lacks SQLite extension support.
+if [[ -d venv ]] && ! venv/bin/python3 -c "import sqlite3; sqlite3.connect(':memory:').enable_load_extension(True)" 2>/dev/null; then
+  echo "  Recreating venv with a Python that supports SQLite extensions..."
+  rm -rf venv
+fi
+
 if [[ ! -d venv ]]; then
   echo "  Creating Python virtual environment..."
-  python3 -m venv venv
+  "$PYTHON3" -m venv venv
 fi
 
 if ! venv/bin/pip show fastapi &>/dev/null; then
