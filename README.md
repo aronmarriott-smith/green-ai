@@ -13,9 +13,8 @@ A local RAG (Retrieval-Augmented Generation) system powered by Google's Gemma mo
 | Role | Model | Size |
 |------|-------|------|
 | Embeddings | `embeddinggemma:300m` | 621 MB |
-| Generation (default) | `gemma4:e2b` | 7.2 GB |
+| Generation (default / Windows + NVIDIA) | `gemma4:e2b` | 7.2 GB |
 | Generation (Apple Silicon) | `gemma4:e2b-mlx` | 7.1 GB |
-| Generation (NVIDIA) | `gemma4:e2b-nvfp4` | 7.1 GB |
 
 Both are Apache 2.0 licensed and run locally. A GPU with ≥12 GB VRAM is strongly recommended for response times under 10 seconds.
 
@@ -84,19 +83,31 @@ export OLLAMA_KEEP_ALIVE=-1
 
 ### Option C — Native (Windows with NVIDIA GPU, without Docker)
 
-`run-native.sh` requires bash and will not run in PowerShell or CMD. Use Git Bash / WSL, or run the steps manually in PowerShell:
+**Prerequisites:** [Ollama](https://ollama.com) and [Python 3.10+](https://www.python.org/downloads/) (check *Add Python to PATH* during install).
 
-```powershell
-# Install Ollama from https://ollama.com, then:
-python -m venv venv
-venv\Scripts\pip install -r requirements.txt
-ollama pull embeddinggemma:300m
-ollama pull gemma4:e2b
-python src\ingest.py
-uvicorn src.server:app --host 0.0.0.0 --port 8000
-```
+1. Add your HTML files to `data/`.
 
-For NVIDIA on Windows, Docker + nvidia-container-toolkit (Option A) is the cleaner path.
+2. Allow PowerShell scripts (one-time, per user):
+   ```powershell
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+   ```
+
+3. Run:
+   ```powershell
+   .\run-native.ps1
+   ```
+
+The script automatically:
+- Detects an NVIDIA GPU via `nvidia-smi` and selects `gemma4:e2b-nvfp4` for best performance
+- Starts Ollama with `KEEP_ALIVE=-1` (model stays warm)
+- Pulls models on first run
+- Creates a virtual environment and installs dependencies
+- Runs ingestion if the knowledge base is empty
+- Starts the server at `http://localhost:8000`
+
+On subsequent runs it skips everything already done and starts in seconds.
+
+> **No NVIDIA GPU?** Use Docker (Option A) — remove the `deploy:` block from `docker-compose.yml` for CPU-only mode.
 
 ---
 
@@ -107,7 +118,7 @@ For NVIDIA on Windows, Docker + nvidia-container-toolkit (Option A) is the clean
 | Intel MacBook Pro | Docker / Native — CPU only | ~90s |
 | Mac Mini M1 8 GB | Native (`run-native.sh`) — close Chrome first | 22s warm · 26 tok/s (GPU), 23s warm · 26 tok/s (CPU fallback) |
 | Mac Mini M1 16 GB+ | Native (`run-native.sh`) — Metal/MLX | ~15–25s |
-| Windows + GTX 1060 6GB | Docker (partial GPU offload) | ~40–60s |
+| Windows + GTX 1060 6GB | Native (`run-native.ps1`) or Docker — partial GPU offload (6 GB VRAM < model size) | ~40–60s |
 | Windows + RTX 4070 Super 12GB | Docker (full VRAM) | ~5–10s |
 
 ---
@@ -148,6 +159,7 @@ green-ai/
 ├── docker-compose.yml      # Docker deployment (NVIDIA GPU / CPU)
 ├── docker-entrypoint.sh    # Container startup: models, ingest, server
 ├── run-native.sh           # Native deployment (Apple Silicon / bare metal)
+├── run-native.ps1          # Native deployment (Windows)
 └── requirements.txt
 ```
 
@@ -158,7 +170,7 @@ Key settings in `src/config.py`. Model names can be overridden with environment 
 | Setting | Default | Env var override |
 |---------|---------|-----------------|
 | `EMBED_MODEL` | `embeddinggemma:300m` | `EMBED_MODEL=...` |
-| `CHAT_MODEL` | `gemma4:e2b` | `CHAT_MODEL=gemma4:e2b-mlx` |
+| `CHAT_MODEL` | `gemma4:e2b` | `CHAT_MODEL=gemma4:e2b-mlx` (Apple Silicon only) |
 | `OLLAMA_HOST` | `http://localhost:11434` | `OLLAMA_HOST=...` |
 | `TOP_K` | `3` | — |
 | `NUM_CTX` | `2048` | — |
