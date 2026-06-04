@@ -1,14 +1,14 @@
 """
 Exits 0 if the vector DB has chunks, 1 if it needs ingestion.
-Used by docker-entrypoint.sh.
+Used by docker-entrypoint.sh and run-native.ps1 / run-native.sh.
 """
-import os
 import sqlite3
 import sys
+from pathlib import Path
 
-DB_PATH = "/app/db/vectors.db"
+DB_PATH = str(Path(__file__).parent.parent / "db" / "vectors.db")
 
-if os.path.exists(DB_PATH):
+if Path(DB_PATH).exists():
     try:
         conn = sqlite3.connect(DB_PATH)
         count = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
