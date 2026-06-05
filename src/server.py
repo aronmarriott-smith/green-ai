@@ -107,9 +107,21 @@ HTML_FORM = """<!DOCTYPE html>
     button#submit-btn.persona-mode { background: #1a1a2e; }
     button#submit-btn.persona-mode:hover:not(:disabled) { background: #2d2d4e; }
 
-    .spinner { display: none; margin-top: 1.5rem; text-align: center;
-               color: #6b7280; font-size: 0.9rem; }
-    .spinner.active { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: none; margin-top: 1.5rem;
+      align-items: center; justify-content: center; gap: 0.6rem;
+      color: #6b7280; font-size: 0.9rem;
+    }
+    .spinner.active { display: flex; }
+    .spinner-ring {
+      width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+      border: 2px solid #d1fae5; border-top-color: #16a34a;
+      animation: spin 0.75s linear infinite;
+    }
+    .spinner.persona-spin .spinner-ring {
+      border-color: #2d2d4e; border-top-color: #86efac;
+    }
     .result { margin-top: 1.5rem; display: none; }
     .result.active { display: block; }
     .result-header {
@@ -201,7 +213,10 @@ HTML_FORM = """<!DOCTYPE html>
     <textarea id="question" placeholder="e.g. What happens at the beginning of the story?"></textarea>
     <button id="submit-btn" onclick="submitQuery()">Ask</button>
 
-    <div class="spinner" id="spinner">Thinking...</div>
+    <div class="spinner" id="spinner">
+      <div class="spinner-ring"></div>
+      <span><span id="thinking-word">Thinking</span> for <span id="thinking-secs">0</span>s...</span>
+    </div>
 
     <div class="result" id="result">
       <div class="result-header">
@@ -214,6 +229,38 @@ HTML_FORM = """<!DOCTYPE html>
   </div>
 
   <script>
+    const THINKING_WORDS = [
+      'Scheming', 'Plotting', 'Analysing', 'Conspiring', 'Conniving',
+      'Machinating', 'Calculating', 'Strategizing', 'Masterminding'
+    ];
+    let thinkingTimer = null;
+    let thinkingStart = 0;
+    let thinkingWordIdx = 0;
+
+    function startThinking(isPersona) {
+      thinkingStart   = Date.now();
+      thinkingWordIdx = Math.floor(Math.random() * THINKING_WORDS.length);
+      const spinner   = document.getElementById('spinner');
+      const wordEl    = document.getElementById('thinking-word');
+      const secsEl    = document.getElementById('thinking-secs');
+      spinner.classList.toggle('persona-spin', isPersona);
+      wordEl.textContent = THINKING_WORDS[thinkingWordIdx];
+      secsEl.textContent = '0';
+      thinkingTimer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - thinkingStart) / 1000);
+        secsEl.textContent = elapsed;
+        if (elapsed > 0 && elapsed % 3 === 0) {
+          thinkingWordIdx = (thinkingWordIdx + 1) % THINKING_WORDS.length;
+          wordEl.textContent = THINKING_WORDS[thinkingWordIdx];
+        }
+      }, 1000);
+    }
+
+    function stopThinking() {
+      clearInterval(thinkingTimer);
+      thinkingTimer = null;
+    }
+
     let activePersonaId = '';
     let activeMode = 'ask';   // 'ask' | 'search' | 'persona'
     let personas = [];
@@ -287,6 +334,7 @@ HTML_FORM = """<!DOCTYPE html>
       btn.disabled = true;
       spinner.classList.add('active');
       result.classList.remove('active');
+      startThinking(activeMode === 'persona');
 
       try {
         if (activeMode === 'search') {
@@ -302,6 +350,7 @@ HTML_FORM = """<!DOCTYPE html>
       } finally {
         btn.disabled = false;
         spinner.classList.remove('active');
+        stopThinking();
       }
     }
 
