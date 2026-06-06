@@ -109,6 +109,20 @@ The script automatically:
 
 On subsequent runs it skips everything already done and starts in seconds.
 
+#### Windows helper scripts
+
+- **`run-native.ps1`** — Windows entrypoint script that automates setup and startup. It:
+   - Creates and activates a Python virtual environment, installs required packages from `requirements.txt`, and ensures the environment is ready.
+   - Detects an NVIDIA GPU (`nvidia-smi`) and selects the appropriate model variant when available.
+   - Pulls required models and keeps them warm (`KEEP_ALIVE=-1`) on first run.
+   - Runs ingestion when the local database is empty and then starts the FastAPI server at `http://localhost:8000`.
+   - Intended for native Windows deployments (with NVIDIA GPU). Run it from the repository root:
+   ```powershell
+   .\run-native.ps1
+   ```
+
+If you prefer to manually control environment setup, dependencies, or ingestion steps, run the individual commands shown elsewhere in this README instead of `run-native.ps1`.
+
 > **No NVIDIA GPU?** Use Docker (Option A) — remove the `deploy:` block from `docker-compose.yml` for CPU-only mode.
 
 ---
