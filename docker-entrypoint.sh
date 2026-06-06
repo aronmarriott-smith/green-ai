@@ -40,7 +40,7 @@ for chunk in client.pull('${model}', stream=True):
 echo ""
 echo "  Checking models..."
 pull_model "embeddinggemma:300m"
-pull_model "gemma4:e2b"
+pull_model "gemma2:27b-instruct-q4_K_M"
 
 # ── 3. Run ingestion if the knowledge base is empty ─────────────────────────
 echo ""

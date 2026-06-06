@@ -9,12 +9,12 @@ services:
     restart: unless-stopped
     environment:
       - OLLAMA_KEEP_ALIVE=-1    # keep models loaded in memory permanently (no cold-start penalty)
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+    # healthcheck:
+    #   test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+    #   interval: 10s
+    #   timeout: 15s
+    #   retries: 8
+    #   start_period: 30s
 
     # ── GPU support (NVIDIA) ─────────────────────────────────────────────────
     # Requires nvidia-container-toolkit installed on the host machine.
@@ -24,6 +24,8 @@ services:
     # Inference will work without a GPU but will be significantly slower.
     deploy:
       resources:
+        limits:
+          memory: 24G
         reservations:
           devices:
             - driver: nvidia
@@ -40,10 +42,14 @@ services:
       - ./db:/app/db          # persists the vector database between restarts
     environment:
       - OLLAMA_HOST=http://ollama:11434
+      - CHAT_MODEL=gemma2:27b-instruct-q4_K_M  # Using quantized model to avoid scheduler constraints
     depends_on:
-      ollama:
-        condition: service_healthy
+      - ollama
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8G
 
 volumes:
   ollama_models:    # stores downloaded Ollama models — persists between restarts

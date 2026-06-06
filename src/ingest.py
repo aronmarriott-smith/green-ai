@@ -17,9 +17,7 @@ import sqlite_vec
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
-from config import CHUNK_OVERLAP, CHUNK_SIZE, DATA_DIR, DB_PATH, EMBED_MODEL
-
-EMBED_DIM = 768
+from config import CHUNK_OVERLAP, CHUNK_SIZE, DATA_DIR, DB_PATH, EMBED_MODEL, EMBED_DIM
 
 
 def get_db() -> sqlite3.Connection:
@@ -52,12 +50,8 @@ def init_schema(db: sqlite3.Connection, reset: bool = False) -> None:
     db.commit()
 
 
-def is_pdf(path: str) -> bool:
-    with open(path, "rb") as f:
-        return f.read(4) == b"%PDF"
-
-
 def parse_html(path: str) -> str:
+    """Parse HTML file and extract text content."""
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         soup = BeautifulSoup(f, "lxml")
 
@@ -72,6 +66,7 @@ def parse_html(path: str) -> str:
 
 
 def chunk_text(text: str) -> list[str]:
+    """Split text into overlapping chunks."""
     chunks = []
     start = 0
     while start < len(text):
@@ -89,15 +84,18 @@ def chunk_text(text: str) -> list[str]:
 
 
 def encode(embedding: list[float]) -> bytes:
+    """Encode embedding vector as bytes."""
     return struct.pack(f"{len(embedding)}f", *embedding)
 
 
 def embed(text: str) -> list[float]:
+    """Generate embedding for text using Ollama."""
     resp = ollama.embeddings(model=EMBED_MODEL, prompt=text)
     return resp["embedding"]
 
 
 def ingest_file(db: sqlite3.Connection, path: str) -> int:
+    """Parse, chunk, embed, and store a single file. Returns number of chunks stored."""
     source = os.path.basename(path)
     print(f"Parsing {source}...")
     text = parse_html(path)
@@ -130,30 +128,28 @@ def main() -> None:
     args = parser.parse_args()
 
     db = get_db()
-    init_schema(db, reset=args.reset)
+    try:
+        init_schema(db, reset=args.reset)
 
-    html_files = list(Path(DATA_DIR).glob("*.html"))
-    if not html_files:
-        print("No HTML files found in data/ — nothing to ingest.")
+        html_files = list(Path(DATA_DIR).glob("*.html"))
+        if not html_files:
+            print("No HTML files found in data/ — nothing to ingest.")
+            return
+
+        total = 0
+        for path in html_files:
+            existing = db.execute(
+                "SELECT COUNT(*) FROM chunks WHERE source = ?",
+                (path.name,),
+            ).fetchone()[0]
+            if existing and not args.reset:
+                print(f"  Skipping {path.name} (already ingested — use --reset to re-ingest)")
+                continue
+            total += ingest_file(db, str(path))
+
+        print(f"\nIngestion complete. Total chunks in DB: {total}")
+    finally:
         db.close()
-        return
-
-    total = 0
-    for path in html_files:
-        if is_pdf(str(path)):
-            print(f"  Skipping {path.name} — file is a PDF, not HTML (rename to .pdf for future PDF support)")
-            continue
-        existing = db.execute(
-            "SELECT COUNT(*) FROM chunks WHERE source = ?",
-            (path.name,),
-        ).fetchone()[0]
-        if existing and not args.reset:
-            print(f"  Skipping {path.name} (already ingested — use --reset to re-ingest)")
-            continue
-        total += ingest_file(db, str(path))
-
-    print(f"\nIngestion complete. Total chunks in DB: {total}")
-    db.close()
 
 
 if __name__ == "__main__":

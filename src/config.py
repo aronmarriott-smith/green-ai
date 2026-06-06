@@ -13,13 +13,20 @@ DATA_DIR = str(BASE_DIR / "data")
 
 CHUNK_SIZE    = 500   # target characters per chunk
 CHUNK_OVERLAP = 80    # overlap between consecutive chunks
-TOP_K         = 3     # number of chunks to retrieve per query
+TOP_K = int(os.getenv("TOP_K", "3"))  # number of chunks to retrieve per query
 
-# KV cache allocation. Our prompts are ~700 tokens; 2048 gives comfortable headroom
-# without the enormous waste of the model's default 131072.
-NUM_CTX = 2048
+# KV cache allocation. Our prompts are ~700 tokens; 1024 is a safer default on
+# Windows / Ollama while still giving enough context for this app.
+NUM_CTX = int(os.getenv("NUM_CTX", "1024"))
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+# Embedding dimension — matches embeddinggemma:300m output
+# CRITICAL: If you change EMBED_MODEL, verify the output dimension matches this value
+EMBED_DIM = 768
+
+# API constraints
+MAX_QUERY_LENGTH = 5000  # maximum characters per query/question
 
 # ── Personas ──────────────────────────────────────────────────────────────────
 # Each persona inhabits a character grounded in one or more ingested documents.

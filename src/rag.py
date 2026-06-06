@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ollama
 import sqlite_vec
 
-from config import CHAT_MODEL, DB_PATH, EMBED_MODEL, NUM_CTX, PERSONAS, TOP_K
+from config import CHAT_MODEL, DB_PATH, EMBED_MODEL, EMBED_DIM, NUM_CTX, PERSONAS, TOP_K
 
 FACTUAL_SYSTEM_PROMPT = (
     "You are a helpful assistant. Answer the user's question using ONLY the context "
@@ -24,6 +24,7 @@ _PERSONAS_BY_ID = {p["id"]: p for p in PERSONAS}
 
 
 def get_db() -> sqlite3.Connection:
+    """Get database connection with sqlite-vec support."""
     db = sqlite3.connect(DB_PATH)
     db.enable_load_extension(True)
     sqlite_vec.load(db)
@@ -33,6 +34,7 @@ def get_db() -> sqlite3.Connection:
 
 
 def encode(embedding: list[float]) -> bytes:
+    """Encode embedding vector as bytes."""
     return struct.pack(f"{len(embedding)}f", *embedding)
 
 
@@ -42,9 +44,11 @@ def retrieve(
     k: int = TOP_K,
     sources: list[str] | None = None,
 ) -> list[dict]:
+    """Retrieve top-k chunks by vector similarity, optionally filtered by source."""
     vec = ollama.embeddings(model=EMBED_MODEL, prompt=query)["embedding"]
 
     if sources:
+        # Filter by sources
         placeholders = ",".join("?" * len(sources))
         rows = db.execute(
             f"""
@@ -59,6 +63,7 @@ def retrieve(
             (encode(vec), k, *sources),
         ).fetchall()
     else:
+        # No source filter
         rows = db.execute(
             """
             SELECT c.source, c.content, v.distance
@@ -79,6 +84,7 @@ def generate(
     context_chunks: list[dict],
     persona_id: str | None = None,
 ) -> str:
+    """Generate answer using LLM with context chunks."""
     if not context_chunks:
         return "I could not find any relevant information in the knowledge base."
 
@@ -107,14 +113,17 @@ def generate(
 
 
 def query(question: str, persona_id: str | None = None) -> dict:
+    """Run a RAG query: retrieve context and generate answer."""
     persona = _PERSONAS_BY_ID.get(persona_id) if persona_id else None
     sources = persona["sources"] if persona else None
 
     db = get_db()
-    chunks = retrieve(db, question, sources=sources)
-    db.close()
+    try:
+        chunks = retrieve(db, question, sources=sources)
+        answer = generate(question, chunks, persona_id=persona_id)
+    finally:
+        db.close()
 
-    answer = generate(question, chunks, persona_id=persona_id)
     return {
         "answer": answer,
         "sources": list({c["source"] for c in chunks}),
