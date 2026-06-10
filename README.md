@@ -249,13 +249,28 @@ green-ai/
 │   ├── server.py           # FastAPI server + HTML UI
 │   ├── benchmark.py        # Performance benchmark logic
 │   └── check_db.py         # DB health check (used by entrypoints)
+├── tests/                  # Endpoint tests (pytest)
 ├── Dockerfile
 ├── docker-compose.yml      # Docker deployment (NVIDIA GPU / CPU)
 ├── docker-entrypoint.sh    # Container startup: models, ingest, server
 ├── run-native.sh           # Native deployment (Apple Silicon / bare metal)
 ├── run-native.ps1          # Native deployment (Windows)
-└── requirements.txt
+├── requirements.txt
+└── requirements-dev.txt    # Adds pytest + httpx for running tests
 ```
+
+## Testing
+
+Install dev dependencies and run the test suite with [pytest](https://docs.pytest.org/):
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Tests mock Ollama and the database, so no models or ingested data are required.
+
+Tests run automatically via GitHub Actions on every pull request.
 
 ## Configuration
 
