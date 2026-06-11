@@ -50,6 +50,11 @@ def init_schema(db: sqlite3.Connection, reset: bool = False) -> None:
     db.commit()
 
 
+def is_pdf(path: str) -> bool:
+    with open(path, "rb") as f:
+        return f.read(4) == b"%PDF"
+
+
 def parse_html(path: str) -> str:
     """Parse HTML file and extract text content."""
     with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -138,6 +143,9 @@ def main() -> None:
 
         total = 0
         for path in html_files:
+            if is_pdf(str(path)):
+                print(f"  Skipping {path.name} — file is a PDF, not HTML (rename to .pdf for future PDF support)")
+                continue
             existing = db.execute(
                 "SELECT COUNT(*) FROM chunks WHERE source = ?",
                 (path.name,),
