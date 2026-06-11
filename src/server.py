@@ -9,6 +9,7 @@ FastAPI server.
 Run with: uvicorn src.server:app --reload
 """
 
+import html
 import os
 import sys
 
@@ -20,7 +21,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import benchmark as bm
 import rag
 import search as search_module
-from config import PERSONAS
+from config import PERSONAS, MAX_QUERY_LENGTH
 
 app = FastAPI(title="Green AI")
 
@@ -354,6 +355,12 @@ HTML_FORM = """<!DOCTYPE html>
       }
     }
 
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     async function runQuery(question, answerEl, sourcesEl, tag) {
       answerEl.className = 'answer';
       const body = { question };
@@ -383,7 +390,7 @@ HTML_FORM = """<!DOCTYPE html>
           tag.style.display  = 'none';
         }
         sourcesEl.innerHTML = data.sources.length
-          ? 'Sources: ' + data.sources.map(s => `<span>${s}</span>`).join('')
+          ? 'Sources: ' + data.sources.map(s => `<span>${escapeHtml(s)}</span>`).join('')
           : '';
       }
     }
@@ -419,7 +426,7 @@ HTML_FORM = """<!DOCTYPE html>
         data.results.map((r, i) => `
           <div class="search-card">
             <div class="search-card-header">
-              <span class="search-card-source">${r.source}</span>
+              <span class="search-card-source">${escapeHtml(r.source)}</span>
               <span class="search-card-score">${Math.round(r.score * 100)}% match</span>
             </div>
             <div class="search-score-bars">
@@ -434,7 +441,7 @@ HTML_FORM = """<!DOCTYPE html>
                 <span style="width:2.5rem;text-align:right">${Math.round(r.keyword_score*100)}%</span>
               </div>
             </div>
-            <div class="search-card-snippet">${r.content}</div>
+            <div class="search-card-snippet">${escapeHtml(r.content)}</div>
           </div>`).join('')
       }</div>`;
     }
@@ -657,11 +664,24 @@ async def personas_endpoint():
 
 @app.post("/query")
 async def query_endpoint(request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"detail": "Invalid JSON"}, status_code=400)
+
     question = (body.get("question") or "").strip()
     if not question:
         return JSONResponse({"detail": "Question must not be empty."}, status_code=400)
-    persona_id = body.get("persona") or None
+    if len(question) > MAX_QUERY_LENGTH:
+        return JSONResponse(
+            {"detail": f"Question exceeds {MAX_QUERY_LENGTH} characters."},
+            status_code=400,
+        )
+
+    persona_id = body.get("persona")
+    if persona_id and not isinstance(persona_id, str):
+        return JSONResponse({"detail": "Persona must be a string."}, status_code=400)
+
     try:
         result = await run_in_threadpool(rag.query, question, persona_id)
         return JSONResponse(result)
@@ -671,10 +691,24 @@ async def query_endpoint(request: Request):
 
 @app.post("/search")
 async def search_endpoint(request: Request):
-    body = await request.json()
-    query = (body.get("query") or "").strip()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"detail": "Invalid JSON"}, status_code=400)
+
+    query = body.get("query")
+    if not isinstance(query, str):
+        return JSONResponse({"detail": "Query must be a string."}, status_code=400)
+
+    query = query.strip()
     if not query:
         return JSONResponse({"detail": "Query must not be empty."}, status_code=400)
+    if len(query) > MAX_QUERY_LENGTH:
+        return JSONResponse(
+            {"detail": f"Query exceeds {MAX_QUERY_LENGTH} characters."},
+            status_code=400,
+        )
+
     try:
         results = await run_in_threadpool(search_module.search, query)
         return JSONResponse({"results": results})

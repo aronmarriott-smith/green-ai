@@ -24,7 +24,6 @@ def _ollama_client() -> ollama.Client:
 
 
 def check_status() -> dict:
-    """Fast health check — no generation."""
     client = _ollama_client()
 
     # Ollama connectivity + model availability
@@ -98,7 +97,13 @@ def _system_info() -> dict:
     # Try to detect GPU via Ollama's running processes endpoint
     try:
         client = _ollama_client()
-        ps = client._request("GET", "/api/ps").json()
+        try:
+            # Try new /api/ps endpoint (Ollama 0.1.30+)
+            ps = client._request("GET", "/api/ps").json()
+        except Exception:
+            # Fallback: assume no GPU info available
+            return info
+
         models_running = ps.get("models", [])
         if models_running:
             if platform.system() == "Darwin" and platform.machine() == "arm64":

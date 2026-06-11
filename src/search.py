@@ -22,7 +22,7 @@ import ollama
 import sqlite_vec
 from rank_bm25 import BM25Okapi
 
-from config import DB_PATH, EMBED_MODEL
+from config import DB_PATH, EMBED_MODEL, EMBED_DIM
 
 RETRIEVE_K     = 15    # candidates pulled from vector DB before reranking
 RETURN_N       = 5     # results returned after reranking
@@ -30,6 +30,7 @@ KEYWORD_WEIGHT = 0.35  # 0 = pure semantic, 1 = pure keyword
 
 
 def _tokenize(text: str) -> list[str]:
+    """Tokenize text for BM25."""
     return re.findall(r"\b\w+\b", text.lower())
 
 
@@ -40,6 +41,7 @@ def search(
     keyword_weight: float = KEYWORD_WEIGHT,
     sources: list[str] | None = None,
 ) -> list[dict]:
+    """Hybrid search: combine semantic + keyword scoring."""
     # ── 1. Semantic retrieval ─────────────────────────────────────────────────
     vec = ollama.embeddings(model=EMBED_MODEL, prompt=query)["embedding"]
     packed = struct.pack(f"{len(vec)}f", *vec)

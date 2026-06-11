@@ -109,6 +109,20 @@ The script automatically:
 
 On subsequent runs it skips everything already done and starts in seconds.
 
+#### Windows helper scripts
+
+- **`run-native.ps1`** — Windows entrypoint script that automates setup and startup. It:
+   - Creates and activates a Python virtual environment, installs required packages from `requirements.txt`, and ensures the environment is ready.
+   - Detects an NVIDIA GPU (`nvidia-smi`) and selects the appropriate model variant when available.
+   - Pulls required models and keeps them warm (`KEEP_ALIVE=-1`) on first run.
+   - Runs ingestion when the local database is empty and then starts the FastAPI server at `http://localhost:8000`.
+   - Intended for native Windows deployments (with NVIDIA GPU). Run it from the repository root:
+   ```powershell
+   .\run-native.ps1
+   ```
+
+If you prefer to manually control environment setup, dependencies, or ingestion steps, run the individual commands shown elsewhere in this README instead of `run-native.ps1`.
+
 > **No NVIDIA GPU?** Use Docker (Option A) — remove the `deploy:` block from `docker-compose.yml` for CPU-only mode.
 
 ---
@@ -124,6 +138,7 @@ On subsequent runs it skips everything already done and starts in seconds.
 | Mac Mini M1 8 GB | Native (`run-native.sh`) — close Chrome first | 22s warm · 26 tok/s (GPU), 23s warm · 26 tok/s (CPU fallback) |
 | Mac Mini M1 16 GB+ | Native (`run-native.sh`) — Metal/MLX | ~15–25s |
 | Windows + GTX 1060 6GB | Native (`run-native.ps1`) or Docker — partial GPU offload (6 GB VRAM < model size) | ~40–60s |
+| Lenovo 20YQ0015UK — i7-11800H, 32 GB RAM, NVIDIA T1200 4 GB | Native Windows / Docker CPU-only — GPU not large enough for full model offload | ~45–90s |
 | Windows + RTX 4070 Super 12GB | Docker (full VRAM) | ~5–10s |
 
 **Why the M4 Pro is faster than the M1:** The M4 Pro's unified memory bandwidth is ~273 GB/s vs ~68 GB/s on the M1. LLM inference on CPU/Apple Silicon is memory-bandwidth bound, so this directly translates to ~4× faster token generation. Combined with MLX optimisations and Metal 4 compute, the M4 Pro is broadly comparable to a mid-range NVIDIA GPU for this workload.

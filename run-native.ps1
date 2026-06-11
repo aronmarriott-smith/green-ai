@@ -34,6 +34,10 @@ if (Get-Command "nvidia-smi" -ErrorAction SilentlyContinue) {
     nvidia-smi --query-gpu=name --format=csv,noheader | Out-Null
     if ($LASTEXITCODE -eq 0) {
         $Platform = "Windows (NVIDIA GPU)"
+        # Use the cross-platform Gemma model on Windows; Ollama uses CUDA behind the scenes.
+        if (-not $env:CHAT_MODEL) {
+            $ChatModel = "gemma4:e2b"
+        }
     }
 }
 
@@ -76,6 +80,11 @@ if (Test-OllamaReady) {
 } else {
     Write-Host "  Starting Ollama..."
     $env:OLLAMA_KEEP_ALIVE = "-1"
+    if ($Platform -eq "Windows (NVIDIA GPU)") {
+        $env:OLLAMA_NUM_GPU = "99"
+    } else {
+        $env:OLLAMA_NUM_GPU = "0"
+    }
     Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden
     Write-Host "  Waiting for Ollama to be ready..."
     $i = 0
