@@ -17,7 +17,7 @@ TOP_K = int(os.getenv("TOP_K", "3"))  # number of chunks to retrieve per query
 
 # KV cache allocation. Our prompts are ~700 tokens; 1024 is a safer default on
 # Windows / Ollama while still giving enough context for this app.
-NUM_CTX = int(os.getenv("NUM_CTX", "1024"))
+NUM_CTX = int(os.getenv("NUM_CTX", "2048"))
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
