@@ -14,18 +14,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ollama
 import sqlite_vec
 
-from config import CHAT_MODEL, DB_PATH, EMBED_MODEL, EMBED_DIM, NUM_CTX, OLLAMA_HOST, TOP_K
+from config import CHAT_MODEL, DB_PATH, EMBED_MODEL, NUM_CTX, OLLAMA_HOST, TOP_K
 
 _BENCH_QUESTION = "Briefly describe what this document is about in one sentence."
 
 
 def _ollama_client() -> ollama.Client:
-    """Create Ollama client."""
     return ollama.Client(host=OLLAMA_HOST)
 
 
 def check_status() -> dict:
-    """Fast health check — no generation."""
     client = _ollama_client()
 
     # Ollama connectivity + model availability
@@ -65,7 +63,6 @@ def check_status() -> dict:
 
 
 def run_benchmark() -> dict:
-    """Run full RAG benchmark."""
     client = _ollama_client()
 
     result = {
@@ -90,7 +87,6 @@ def run_benchmark() -> dict:
 
 
 def _system_info() -> dict:
-    """Detect system info and GPU usage."""
     info = {
         "os": platform.system(),
         "os_version": platform.version(),
@@ -128,7 +124,6 @@ def _system_info() -> dict:
 
 
 def _measure_timings(client: ollama.Client) -> dict:
-    """Measure RAG pipeline latencies."""
     # 1. Embedding
     t0 = time.perf_counter()
     vec = client.embeddings(model=EMBED_MODEL, prompt=_BENCH_QUESTION)["embedding"]
@@ -198,7 +193,6 @@ def _measure_timings(client: ollama.Client) -> dict:
 
 
 def _make_verdict(timings: dict, gpu_info: str = "unknown") -> dict:
-    """Generate performance verdict and recommendations."""
     tps  = timings["tokens_per_sec"]
     ttft = timings["prompt_eval_ms"]
 
