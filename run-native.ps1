@@ -6,9 +6,11 @@
 
 .DESCRIPTION
     - Detects NVIDIA GPU via nvidia-smi and selects gemma4:e2b-nvfp4
-    - Checks Ollama is installed, starts it if not already running
+    - Checks Ollama is installed, offering a winget install if missing, then
+      starts it if not already running
     - Pulls embedding and chat models on first run
-    - Creates a Python 3.10+ virtual environment and installs dependencies
+    - Checks for Python 3.10+, offering a winget install if missing, then
+      creates a virtual environment and installs dependencies
     - Runs ingestion if the knowledge base is empty
     - Starts the FastAPI server at http://localhost:8000
 
@@ -24,6 +26,14 @@
 
 $ErrorActionPreference  = "Stop"
 $ProgressPreference     = "SilentlyContinue"   # suppress Invoke-WebRequest progress bars
+
+# -- Refresh PATH from the registry (picks up tools installed via winget without
+#    needing a new terminal, as long as the installer registered them) --------
+function Update-SessionPath {
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath    = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = @($machinePath, $userPath) -join ";"
+}
 
 # -- Detect hardware and set model variant ------------------------------------
 $Platform   = "Windows"
@@ -57,10 +67,44 @@ if (-not (Get-Command "ollama" -ErrorAction SilentlyContinue)) {
     Write-Host ""
     Write-Host "  Ollama is not installed."
     Write-Host ""
-    Write-Host "  1. Download and install it from: https://ollama.com"
-    Write-Host "  2. Re-run this script."
+
+    $hasWinget = [bool](Get-Command "winget" -ErrorAction SilentlyContinue)
+    if ($hasWinget) {
+        Write-Host "  [1] Install Ollama automatically via winget"
+        Write-Host "  [2] I will install it myself"
+    } else {
+        Write-Host "  [1] I will install it myself"
+    }
     Write-Host ""
-    exit 1
+    $choice = Read-Host "  Choose an option"
+
+    if ($hasWinget -and $choice -eq "1") {
+        Write-Host ""
+        Write-Host "  Installing Ollama..."
+        winget install --id Ollama.Ollama --source winget
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ""
+            Write-Host "  Installation failed. Please install manually:"
+            Write-Host "  https://ollama.com"
+            exit 1
+        }
+
+        Update-SessionPath
+        if (-not (Get-Command "ollama" -ErrorAction SilentlyContinue)) {
+            Write-Host ""
+            Write-Host "  Ollama was installed, but this terminal doesn't see it yet."
+            Write-Host "  Close this window, open a new terminal, and re-run the script."
+            exit 0
+        }
+        Write-Host "  Ollama installed."
+        Write-Host ""
+    } else {
+        Write-Host ""
+        Write-Host "  Download and install Ollama from: https://ollama.com"
+        Write-Host "  Then re-run this script."
+        Write-Host ""
+        exit 1
+    }
 }
 
 # -- Ollama readiness check ---------------------------------------------------
@@ -123,19 +167,22 @@ Invoke-PullIfMissing $EmbedModel
 Invoke-PullIfMissing $ChatModel
 
 # -- Find Python 3.10+ --------------------------------------------------------
-$PythonExe = $null
-foreach ($candidate in @("python", "python3", "py")) {
-    if (-not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
-    try {
-        $ver = (& $candidate --version 2>&1)
-        if ("$ver" -match "Python (\d+)\.(\d+)") {
-            if ([int]$Matches[1] -ge 3 -and [int]$Matches[2] -ge 10) {
-                $PythonExe = $candidate
-                break
+function Find-Python {
+    foreach ($candidate in @("python", "python3", "py")) {
+        if (-not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
+        try {
+            $ver = (& $candidate --version 2>&1)
+            if ("$ver" -match "Python (\d+)\.(\d+)") {
+                if ([int]$Matches[1] -ge 3 -and [int]$Matches[2] -ge 10) {
+                    return $candidate
+                }
             }
-        }
-    } catch {}
+        } catch {}
+    }
+    return $null
 }
+
+$PythonExe = Find-Python
 
 if (-not $PythonExe) {
     Write-Host ""
@@ -161,16 +208,25 @@ if (-not $PythonExe) {
             Write-Host "  Installation failed. Please install manually:"
             Write-Host "  https://www.python.org/downloads/"
             Write-Host "  Check 'Add Python to PATH' during setup, then re-run this script."
-        } else {
-            Write-Host ""
-            Write-Host "  Python installed. Open a new terminal window and re-run this script."
+            exit 0
         }
+
+        Update-SessionPath
+        $PythonExe = Find-Python
+        if (-not $PythonExe) {
+            Write-Host ""
+            Write-Host "  Python was installed, but this terminal doesn't see it yet."
+            Write-Host "  Close this window, open a new terminal, and re-run the script."
+            exit 0
+        }
+        Write-Host ""
+        Write-Host "  Python installed."
     } else {
         Write-Host ""
         Write-Host "  Install Python 3.10+ from: https://www.python.org/downloads/"
         Write-Host "  Check 'Add Python to PATH' during setup, then re-run this script."
+        exit 0
     }
-    exit 0
 }
 
 Write-Host "  Using Python: $((& $PythonExe --version 2>&1))"
