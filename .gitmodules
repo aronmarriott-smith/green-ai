@@ -1,0 +1,3 @@
+[submodule "wordnet-embeddings"]
+	path = wordnet-embeddings
+	url = git@github.com:aronmarriott-smith/wordnet-embeddings.git
